@@ -1,0 +1,947 @@
+---
+/**
+ * Live demo panel for P-02, embedded inside its project record in
+ * ProjectsSection (in place of the STAR grid).
+ * Markup, styles, and player script are taken as-is from the user's own
+ * design in src/data/web_smooth/ (ScrPlayer.astro + the page-level styles of
+ * its index.astro that the panel depends on). Only unavoidable adaptations
+ * were made for embedding:
+ *   - data fetched from /demo/scr-dosing/ (copied from web_smooth/public/data)
+ *   - page :root/body selectors -> #demo-scr wrapper (fonts, box-sizing,
+ *     page background vars); page header/footer chrome dropped
+ *   - viewport media query (max-width: 640px) -> container query, with
+ *     container-type: inline-size on the wrapper, so responsiveness follows
+ *     the record's width; scroll-margin-top for the fixed navbar
+ *   - the global Space shortcut only reacts while the panel is on screen,
+ *     so it cannot hijack spacebar scrolling elsewhere on the portfolio page
+ */
+---
+
+<div id="demo-scr">
+<div class="viz-root" id="app">
+  <div class="toolbar">
+    <button id="play" class="btn btn-primary" type="button" aria-keyshortcuts="Space">
+      <span id="play-icon" aria-hidden="true">▶</span><span id="play-label">Přehrát</span>
+    </button>
+
+    <label class="field">
+      <span>Rychlost</span>
+      <select id="speed">
+        <option value="5">5 min/s</option>
+        <option value="15" selected>15 min/s</option>
+        <option value="40">40 min/s</option>
+        <option value="120">120 min/s</option>
+      </select>
+    </label>
+
+    <label class="check"><input type="checkbox" id="opt-ghost" checked /> Náhled celého průběhu</label>
+    <label class="check"><input type="checkbox" id="opt-in" checked /> Vstupní NOₓ</label>
+    <label class="check"><input type="checkbox" id="opt-log" /> Log. osa NH₃</label>
+
+    <button id="theme" class="btn" type="button" title="Světlý / tmavý režim">
+      <span id="theme-label">Motiv: auto</span>
+    </button>
+  </div>
+
+  <!-- ============ Panel a) NOx ============ -->
+  <figure class="panel">
+    <figcaption>
+      <h2>a) Výstupní molární zlomek NO<sub>x</sub></h2>
+      <div class="legend" id="legend-nox">
+        <span class="chip" data-series="nox_in"><i class="swatch sw-ref"></i>vstup<b>—</b></span>
+        <span class="chip" data-series="nox_pid"><i class="swatch sw-pid"></i>PID<b>—</b></span>
+        <span class="chip" data-series="nox_nmpc"><i class="swatch sw-nmpc"></i>NMPC-PID<b>—</b></span>
+      </div>
+    </figcaption>
+    <canvas id="cv-nox" role="img"
+      aria-label="Časový průběh výstupní koncentrace NOx pro regulátory PID a NMPC-PID"></canvas>
+  </figure>
+
+  <!-- ============ Panel b) NH3 ============ -->
+  <figure class="panel">
+    <figcaption>
+      <h2>b) Průnik NH<sub>3</sub> za katalyzátorem</h2>
+      <div class="legend" id="legend-nh3">
+        <span class="chip" data-series="nh3_pid"><i class="swatch sw-pid"></i>PID<b>—</b></span>
+        <span class="chip" data-series="nh3_nmpc"><i class="swatch sw-nmpc"></i>NMPC-PID<b>—</b></span>
+      </div>
+    </figcaption>
+    <canvas id="cv-nh3" role="img"
+      aria-label="Časový průběh průniku NH3 za katalyzátorem pro regulátory PID a NMPC-PID"></canvas>
+  </figure>
+
+  <!-- ============ Posuvník + profil teploty ============ -->
+  <div class="scrub">
+    <canvas id="cv-scrub" aria-hidden="true"></canvas>
+    <input type="range" id="slider" min="0" max="100" value="0" step="1"
+      aria-label="Čas simulace v minutách" />
+    <div class="scrub-readout">
+      <span class="t-now" id="t-now">0,0 min</span>
+      <span class="sep">·</span>
+      <span><i class="swatch sw-temp"></i> T<sub>in</sub> <b id="tin-now">—</b> °C</span>
+      <span class="sep">·</span>
+      <span>fáze <b id="stage-now">—</b></span>
+    </div>
+  </div>
+
+  <details class="table-view">
+    <summary>Tabulka hodnot v poloze kurzoru</summary>
+    <table>
+      <thead>
+        <tr><th scope="col">Veličina</th><th scope="col">PID</th><th scope="col">NMPC-PID</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">y<sub>NO<sub>x</sub></sub> [ppm]</th><td id="tv-nox-pid">—</td><td id="tv-nox-nmpc">—</td></tr>
+        <tr><th scope="row">y<sub>NH<sub>3</sub></sub> [ppm]</th><td id="tv-nh3-pid">—</td><td id="tv-nh3-nmpc">—</td></tr>
+        <tr><th scope="row">y<sub>NO<sub>x</sub>,in</sub> [ppm]</th><td id="tv-noxin" colspan="2">—</td></tr>
+        <tr><th scope="row">T<sub>in</sub> [°C]</th><td id="tv-tin" colspan="2">—</td></tr>
+      </tbody>
+    </table>
+  </details>
+
+  <p class="status" id="status" role="status">Načítám data…</p>
+</div>
+</div>
+
+<style>
+  /* Page-level styles from web_smooth/src/pages/index.astro that the panel
+     relied on (body font, box-sizing, page background), retargeted from
+     :root/body to the #demo-scr wrapper. */
+  #demo-scr {
+    color-scheme: light;
+    --page-bg: #fcfcfb;
+    --page-fg: #0b0b0b;
+    --page-fg-2: #52514e;
+    --page-muted: #7a786f;
+    --page-border: #dedcd4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) #demo-scr {
+      color-scheme: dark;
+      --page-bg: #141413;
+      --page-fg: #ffffff;
+      --page-fg-2: #c3c2b7;
+      --page-muted: #8f8e85;
+      --page-border: #3a3a37;
+    }
+  }
+  :root[data-theme='dark'] #demo-scr {
+    color-scheme: dark;
+    --page-bg: #141413;
+    --page-fg: #ffffff;
+    --page-fg-2: #c3c2b7;
+    --page-muted: #8f8e85;
+    --page-border: #3a3a37;
+  }
+
+  #demo-scr, #demo-scr * { box-sizing: border-box; }
+
+  #demo-scr {
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 1.25rem;
+    border: 1px solid var(--page-border);
+    border-radius: 8px;
+    overflow: hidden;
+    container-type: inline-size;
+    scroll-margin-top: 4.5rem;
+  }
+
+  /* ----- ScrPlayer styles, verbatim (only the viewport media query at the
+     bottom was converted to a container query) ----- */
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --surface-2: #f3f3f0;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #7a786f;
+    --border: #dedcd4;
+    --grid: #e8e8e4;
+    --series-pid: #c0392b;
+    --series-nmpc: #2980b9;
+    --series-ref: #7f8c8d;
+    --series-temp: #8e44ad;
+    --shade-stop: #fff4e6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme='light'])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --surface-2: #232322;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #8f8e85;
+      --border: #3a3a37;
+      --grid: #2c2c2a;
+      --series-pid: #e05a4a;
+      --series-nmpc: #3987e5;
+      --series-ref: #9aa0a0;
+      --series-temp: #a97fd6;
+      --shade-stop: #2a2419;
+    }
+  }
+  :root[data-theme='dark'] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --surface-2: #232322;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e85;
+    --border: #3a3a37;
+    --grid: #2c2c2a;
+    --series-pid: #e05a4a;
+    --series-nmpc: #3987e5;
+    --series-ref: #9aa0a0;
+    --series-temp: #a97fd6;
+    --shade-stop: #2a2419;
+  }
+
+  .viz-root {
+    background: var(--surface-1);
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* ---------- ovládací lišta ---------- */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .btn {
+    font: inherit;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 0.35rem 0.8rem;
+    cursor: pointer;
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .btn:hover { border-color: var(--text-muted); }
+  .btn-primary { min-width: 9.5rem; justify-content: center; font-variant-numeric: tabular-nums; }
+  .field, .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+  select {
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.4rem;
+  }
+  .toolbar .btn:last-child { margin-left: auto; }
+
+  /* ---------- panely ---------- */
+  .panel { margin: 0; }
+  .panel figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.3rem 1rem;
+    margin-bottom: 0.35rem;
+  }
+  .panel h2 {
+    font-size: 0.98rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+  }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.15rem 0.9rem; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+  .chip b {
+    color: var(--text-primary);
+    font-weight: 600;
+    min-width: 4.4rem;
+    text-align: right;
+  }
+  .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  .sw-pid { background: var(--series-pid); }
+  .sw-nmpc { background: var(--series-nmpc); }
+  .sw-temp { background: var(--series-temp); }
+  .sw-ref {
+    background: repeating-linear-gradient(
+      90deg, var(--series-ref) 0 5px, transparent 5px 8px);
+  }
+  canvas { display: block; width: 100%; }
+  #cv-nox, #cv-nh3 { height: 260px; touch-action: pan-y; cursor: crosshair; }
+
+  /* ---------- posuvník ---------- */
+  .scrub {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem 0.6rem 0.4rem;
+    background: var(--surface-2);
+  }
+  #cv-scrub { height: 54px; }
+  #slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    margin: 0.25rem 0 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  #slider::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 2px; background: var(--border);
+  }
+  #slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--border); }
+  #slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+    background: var(--text-primary); border: 2px solid var(--surface-1);
+  }
+  #slider::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text-primary); border: 2px solid var(--surface-1);
+  }
+  #slider:focus-visible { outline: 2px solid var(--series-nmpc); outline-offset: 4px; }
+  .scrub-readout {
+    display: flex; flex-wrap: wrap; gap: 0.5rem;
+    font-size: 0.85rem; color: var(--text-secondary);
+    margin-top: 0.35rem; font-variant-numeric: tabular-nums;
+  }
+  .scrub-readout b { color: var(--text-primary); }
+  .scrub-readout .t-now { font-weight: 600; color: var(--text-primary); }
+  .sep { color: var(--text-muted); }
+
+  /* ---------- tabulka ---------- */
+  .table-view { font-size: 0.85rem; color: var(--text-secondary); }
+  .table-view summary { cursor: pointer; }
+  .table-view table {
+    border-collapse: collapse; margin-top: 0.5rem; min-width: 22rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .table-view th, .table-view td {
+    text-align: right; padding: 0.25rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .table-view thead th, .table-view tbody th { text-align: left; color: var(--text-secondary); font-weight: 500; }
+  .table-view td { color: var(--text-primary); }
+
+  .status { font-size: 0.82rem; color: var(--text-muted); margin: 0; }
+
+  @container (max-width: 640px) {
+    #cv-nox, #cv-nh3 { height: 210px; }
+    .toolbar .btn:last-child { margin-left: 0; }
+  }
+</style>
+
+<script>
+  // Embedded build: data lives under /demo/scr-dosing/ (was BASE_URL + data/).
+  const BASE = import.meta.env.BASE_URL + 'demo/scr-dosing/';
+
+  const $ = (id) => document.getElementById(id);
+  const fmt = (v, d = 1) =>
+    v === null || v === undefined || Number.isNaN(v)
+      ? '—'
+      : v.toLocaleString('cs-CZ', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  // ---------------------------------------------------------------- stav
+  const state = {
+    meta: null,
+    col: {},          // název série → Float32Array
+    N: 0,
+    t0: 0,
+    dt: 0,
+    tEnd: 420,
+    idx: 0,           // index kurzoru
+    playing: false,
+    speed: 15,        // min simulace za sekundu reálného času
+    ghost: true,
+    showIn: true,
+    logNh3: false,
+    theme: null,      // kešované barvy
+  };
+
+  // ------------------------------------------------------- geometrie os
+  const PAD = { l: 62, r: 14, t: 10, b: 34 };
+  const SCRUB_PAD = 8; // poloviční šířka jezdce — zarovnává posuvník s plátnem
+
+  function niceStep(range, target = 5) {
+    const raw = range / target;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+    return step * mag;
+  }
+
+  function readTheme() {
+    const cs = getComputedStyle($('app'));
+    state.theme = {
+      surface: cs.getPropertyValue('--surface-1').trim(),
+      text: cs.getPropertyValue('--text-primary').trim(),
+      textSec: cs.getPropertyValue('--text-secondary').trim(),
+      muted: cs.getPropertyValue('--text-muted').trim(),
+      border: cs.getPropertyValue('--border').trim(),
+      grid: cs.getPropertyValue('--grid').trim(),
+      pid: cs.getPropertyValue('--series-pid').trim(),
+      nmpc: cs.getPropertyValue('--series-nmpc').trim(),
+      ref: cs.getPropertyValue('--series-ref').trim(),
+      temp: cs.getPropertyValue('--series-temp').trim(),
+      stop: cs.getPropertyValue('--shade-stop').trim(),
+    };
+  }
+
+  // --------------------------------------------- panely (definice sérií)
+  const panels = [
+    {
+      id: 'cv-nox',
+      legend: 'legend-nox',
+      unit: 'y NOₓ [ppm]',
+      series: [
+        { key: 'nox_in', color: 'ref', dash: [7, 5], width: 1.6, optional: 'showIn' },
+        { key: 'nox_pid', color: 'pid', width: 2 },
+        { key: 'nox_nmpc', color: 'nmpc', width: 2 },
+      ],
+      log: false,
+    },
+    {
+      id: 'cv-nh3',
+      legend: 'legend-nh3',
+      unit: 'y NH₃ [ppm]',
+      series: [
+        { key: 'nh3_pid', color: 'pid', width: 2 },
+        { key: 'nh3_nmpc', color: 'nmpc', width: 2 },
+      ],
+      log: false,
+    },
+  ];
+
+  const LOG_FLOOR = 0.01; // ppm — spodní mez logaritmické osy NH3
+
+  // Obálka min/max na pixelový sloupec → Path2D (rychlé překreslení každý snímek)
+  function buildPath(arr, geom, yOf) {
+    const cols = Math.max(2, Math.round(geom.w));
+    const mn = new Float64Array(cols);
+    const mx = new Float64Array(cols);
+    const first = new Float64Array(cols);
+    const last = new Float64Array(cols);
+    const seen = new Uint8Array(cols);
+    const N = state.N;
+    for (let i = 0; i < N; i++) {
+      const c = Math.min(cols - 1, Math.floor((i * (cols - 1)) / (N - 1)));
+      const v = arr[i];
+      if (!seen[c]) {
+        seen[c] = 1;
+        first[c] = mn[c] = mx[c] = v;
+      } else {
+        if (v < mn[c]) mn[c] = v;
+        if (v > mx[c]) mx[c] = v;
+      }
+      last[c] = v;
+    }
+    const p = new Path2D();
+    let started = false;
+    for (let c = 0; c < cols; c++) {
+      if (!seen[c]) continue;
+      const x = geom.x0 + c;
+      if (!started) {
+        p.moveTo(x, yOf(first[c]));
+        started = true;
+      }
+      p.lineTo(x, yOf(mn[c]));
+      p.lineTo(x, yOf(mx[c]));
+      p.lineTo(x, yOf(last[c]));
+    }
+    return p;
+  }
+
+  function layout(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return {
+      ctx,
+      W: w,
+      H: h,
+      x0: PAD.l,
+      x1: w - PAD.r,
+      y0: PAD.t,
+      y1: h - PAD.b,
+      w: w - PAD.l - PAD.r,
+      h: h - PAD.t - PAD.b,
+    };
+  }
+
+  function prepare(panel) {
+    const canvas = $(panel.id);
+    const g = layout(canvas);
+    panel.geom = g;
+
+    const active = panel.series.filter((s) => !s.optional || state[s.optional]);
+    panel.active = active;
+
+    // rozsah osy y ze zobrazených sérií
+    let vmax = 0;
+    for (const s of active) vmax = Math.max(vmax, state.meta.ranges[s.key][1]);
+    const useLog = panel.log && vmax > 0;
+    let yOf, ticks;
+    if (useLog) {
+      const lo = Math.log10(LOG_FLOOR);
+      const hi = Math.ceil(Math.log10(vmax));
+      yOf = (v) => {
+        const lv = Math.log10(Math.max(v, LOG_FLOOR));
+        return g.y1 - ((lv - lo) / (hi - lo)) * g.h;
+      };
+      ticks = [];
+      for (let e = Math.log10(LOG_FLOOR); e <= hi + 1e-9; e++) ticks.push(Math.pow(10, e));
+    } else {
+      const step = niceStep(vmax || 1);
+      const top = Math.ceil(vmax / step) * step || 1;
+      yOf = (v) => g.y1 - (v / top) * g.h;
+      ticks = [];
+      for (let t = 0; t <= top + 1e-9; t += step) ticks.push(t);
+    }
+    panel.yOf = yOf;
+    panel.ticks = ticks;
+    panel.useLog = useLog;
+    panel.paths = active.map((s) => ({ s, p: buildPath(state.col[s.key], g, yOf) }));
+  }
+
+  function xOf(panel, tMin) {
+    const g = panel.geom;
+    return g.x0 + ((tMin - state.t0) / (state.tEnd - state.t0)) * g.w;
+  }
+
+  function drawPanel(panel) {
+    const g = panel.geom;
+    const th = state.theme;
+    const ctx = g.ctx;
+    ctx.clearRect(0, 0, g.W, g.H);
+
+    // pozadí odstavení (385–420 min)
+    ctx.fillStyle = th.stop;
+    const xs = xOf(panel, 385);
+    ctx.fillRect(xs, g.y0, xOf(panel, state.tEnd) - xs, g.h);
+
+    // mřížka + popisky osy y
+    ctx.strokeStyle = th.grid;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = th.muted;
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (const t of panel.ticks) {
+      const y = Math.round(panel.yOf(t)) + 0.5;
+      if (y < g.y0 - 1 || y > g.y1 + 1) continue;
+      ctx.beginPath();
+      ctx.moveTo(g.x0, y);
+      ctx.lineTo(g.x1, y);
+      ctx.stroke();
+      const lbl = panel.useLog
+        ? Number(t.toPrecision(2)).toLocaleString('cs-CZ')
+        : t.toLocaleString('cs-CZ');
+      ctx.fillText(lbl, g.x0 - 7, y);
+    }
+
+    // hranice fází
+    ctx.strokeStyle = th.border;
+    ctx.setLineDash([2, 5]);
+    for (const st of state.meta.stages) {
+      for (const b of [st.start, st.end]) {
+        if (b <= state.t0 || b >= state.tEnd) continue;
+        const x = Math.round(xOf(panel, b)) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x, g.y0);
+        ctx.lineTo(x, g.y1);
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+
+    // osa x
+    ctx.strokeStyle = th.border;
+    ctx.beginPath();
+    ctx.moveTo(g.x0, g.y1 + 0.5);
+    ctx.lineTo(g.x1, g.y1 + 0.5);
+    ctx.stroke();
+    ctx.fillStyle = th.muted;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let t = 0; t <= state.tEnd; t += 60) {
+      ctx.fillText(String(t), xOf(panel, t), g.y1 + 5);
+    }
+    ctx.fillStyle = th.textSec;
+    ctx.fillText('t [min]', (g.x0 + g.x1) / 2, g.y1 + 19);
+
+    // popisek osy y
+    ctx.save();
+    ctx.translate(10, (g.y0 + g.y1) / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = th.textSec;
+    ctx.fillText(panel.unit, 0, 0);
+    ctx.restore();
+
+    // křivky — plné do kurzoru, zeslabené za ním
+    const xc = xOf(panel, state.t0 + state.idx * state.dt);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (const { s, p } of panel.paths) {
+      ctx.strokeStyle = th[s.color];
+      ctx.lineWidth = s.width;
+      if (state.ghost) {
+        ctx.save();
+        ctx.globalAlpha = 0.15;
+        ctx.beginPath();
+        ctx.rect(xc, g.y0, g.x1 - xc, g.h);
+        ctx.clip();
+        if (s.dash) ctx.setLineDash(s.dash);
+        ctx.stroke(p);
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(g.x0 - 1, g.y0, xc - g.x0 + 1, g.h);
+      ctx.clip();
+      if (s.dash) ctx.setLineDash(s.dash);
+      ctx.stroke(p);
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // kurzor + značky aktuálních hodnot
+    ctx.strokeStyle = th.muted;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(xc) + 0.5, g.y0);
+    ctx.lineTo(Math.round(xc) + 0.5, g.y1);
+    ctx.stroke();
+    for (const s of panel.active) {
+      const v = state.col[s.key][state.idx];
+      const y = panel.yOf(v);
+      if (y < g.y0 - 2 || y > g.y1 + 2) continue;
+      ctx.beginPath();
+      ctx.arc(xc, y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = th[s.color];
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = th.surface;
+      ctx.stroke();
+    }
+  }
+
+  // -------------------------------------------------------- posuvník
+  function drawScrub() {
+    const canvas = $('cv-scrub');
+    const g = layout(canvas);
+    // posuvník má použitelnou dráhu zúženou o poloviční jezdec → stejná geometrie
+    g.x0 = SCRUB_PAD;
+    g.x1 = g.W - SCRUB_PAD;
+    g.w = g.x1 - g.x0;
+    const th = state.theme;
+    const ctx = g.ctx;
+    ctx.clearRect(0, 0, g.W, g.H);
+
+    const [tmin, tmax] = state.meta.ranges.tin_C;
+    const pad = 6;
+    const yOf = (v) => g.H - pad - ((v - tmin) / (tmax - tmin || 1)) * (g.H - 2 * pad - 14);
+    const xAt = (i) => g.x0 + (i / (state.N - 1)) * g.w;
+
+    // odstavení
+    ctx.fillStyle = th.stop;
+    const xs = g.x0 + (385 / state.tEnd) * g.w;
+    ctx.fillRect(xs, 0, g.x1 - xs, g.H);
+
+    // profil vstupní teploty jako kontext
+    ctx.beginPath();
+    ctx.moveTo(g.x0, g.H - pad);
+    const cols = Math.round(g.w);
+    for (let c = 0; c <= cols; c++) {
+      const i = Math.min(state.N - 1, Math.round((c / cols) * (state.N - 1)));
+      ctx.lineTo(g.x0 + c, yOf(state.col.tin_C[i]));
+    }
+    ctx.lineTo(g.x1, g.H - pad);
+    ctx.closePath();
+    ctx.fillStyle = th.temp;
+    ctx.globalAlpha = 0.16;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = th.temp;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let c = 0; c <= cols; c++) {
+      const i = Math.min(state.N - 1, Math.round((c / cols) * (state.N - 1)));
+      const x = g.x0 + c;
+      const y = yOf(state.col.tin_C[i]);
+      c === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // popisky fází
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = th.muted;
+    ctx.strokeStyle = th.border;
+    ctx.setLineDash([2, 4]);
+    for (const st of state.meta.stages) {
+      const xa = g.x0 + (st.start / state.tEnd) * g.w;
+      const xb = g.x0 + (st.end / state.tEnd) * g.w;
+      ctx.fillText(st.label, (xa + xb) / 2, 2);
+      ctx.beginPath();
+      ctx.moveTo(Math.round(xa) + 0.5, 14);
+      ctx.lineTo(Math.round(xa) + 0.5, g.H);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // poloha kurzoru
+    const xc = xAt(state.idx);
+    ctx.strokeStyle = th.text;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(xc, 12);
+    ctx.lineTo(xc, g.H);
+    ctx.stroke();
+
+    // teplotní profil popisuje výpis pod posuvníkem (barevný vzorek)
+  }
+
+  // ------------------------------------------------------------ výpisy
+  function stageAt(t) {
+    for (const st of state.meta.stages) {
+      if (t >= st.start && t <= st.end) return st.label;
+    }
+    return 'přechod';
+  }
+
+  function updateReadout() {
+    const i = state.idx;
+    const t = state.t0 + i * state.dt;
+    $('t-now').textContent = `${fmt(t, 1)} min`;
+    $('tin-now').textContent = fmt(state.col.tin_C[i], 0);
+    $('stage-now').textContent = stageAt(t);
+
+    const vals = {
+      nox_in: state.col.nox_in[i],
+      nox_pid: state.col.nox_pid[i],
+      nox_nmpc: state.col.nox_nmpc[i],
+      nh3_pid: state.col.nh3_pid[i],
+      nh3_nmpc: state.col.nh3_nmpc[i],
+    };
+    // scoped to the demo wrapper — the surrounding portfolio page may use
+    // .chip elsewhere
+    for (const chip of document.querySelectorAll('#demo-scr .chip')) {
+      const key = chip.dataset.series;
+      const dec = key.startsWith('nh3') ? 2 : 0;
+      chip.querySelector('b').textContent = `${fmt(vals[key], dec)} ppm`;
+      chip.style.display = key === 'nox_in' && !state.showIn ? 'none' : '';
+    }
+    $('tv-nox-pid').textContent = fmt(vals.nox_pid, 1);
+    $('tv-nox-nmpc').textContent = fmt(vals.nox_nmpc, 1);
+    $('tv-nh3-pid').textContent = fmt(vals.nh3_pid, 2);
+    $('tv-nh3-nmpc').textContent = fmt(vals.nh3_nmpc, 2);
+    $('tv-noxin').textContent = fmt(vals.nox_in, 1);
+    $('tv-tin').textContent = fmt(state.col.tin_C[i], 1);
+  }
+
+  function render() {
+    for (const p of panels) drawPanel(p);
+    drawScrub();
+    updateReadout();
+  }
+
+  function relayout() {
+    readTheme();
+    panels[1].log = state.logNh3;
+    for (const p of panels) prepare(p);
+    render();
+  }
+
+  function setIdx(i, fromSlider = false) {
+    state.idx = Math.max(0, Math.min(state.N - 1, Math.round(i)));
+    if (!fromSlider) $('slider').value = String(state.idx);
+    render();
+  }
+
+  // ---------------------------------------------------------- přehrávání
+  let rafId = null;
+  let lastTs = 0;
+  function tick(ts) {
+    if (!state.playing) return;
+    const dtReal = lastTs ? (ts - lastTs) / 1000 : 0;
+    lastTs = ts;
+    const stepIdx = (state.speed * dtReal) / state.dt;
+    let next = state.idx + stepIdx;
+    if (next >= state.N - 1) {
+      next = state.N - 1;
+      setIdx(next);
+      setPlaying(false);
+      return;
+    }
+    setIdx(next);
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function setPlaying(on) {
+    state.playing = on;
+    $('play-icon').textContent = on ? '❚❚' : '▶';
+    $('play-label').textContent = on ? 'Pauza' : 'Přehrát';
+    if (on) {
+      if (state.idx >= state.N - 1) setIdx(0);
+      lastTs = 0;
+      rafId = requestAnimationFrame(tick);
+    } else if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+  }
+
+  // ------------------------------------------------------------- události
+  function bind() {
+    $('play').addEventListener('click', () => setPlaying(!state.playing));
+    $('slider').addEventListener('input', (e) => {
+      setPlaying(false);
+      setIdx(Number(e.target.value), true);
+    });
+    $('speed').addEventListener('change', (e) => (state.speed = Number(e.target.value)));
+    $('opt-ghost').addEventListener('change', (e) => {
+      state.ghost = e.target.checked;
+      render();
+    });
+    $('opt-in').addEventListener('change', (e) => {
+      state.showIn = e.target.checked;
+      relayout();
+    });
+    $('opt-log').addEventListener('change', (e) => {
+      state.logNh3 = e.target.checked;
+      relayout();
+    });
+
+    // scrub myší / dotykem přímo v grafu
+    for (const p of panels) {
+      const cv = $(p.id);
+      const move = (ev) => {
+        const r = cv.getBoundingClientRect();
+        const x = ev.clientX - r.left;
+        const g = p.geom;
+        const frac = (x - g.x0) / g.w;
+        setIdx(frac * (state.N - 1));
+      };
+      cv.addEventListener('pointerdown', (ev) => {
+        setPlaying(false);
+        cv.setPointerCapture(ev.pointerId);
+        move(ev);
+      });
+      cv.addEventListener('pointermove', (ev) => {
+        // během přehrávání kurzor posouvá jen tažení, ne pouhé najetí myší
+        if (ev.buttons) move(ev);
+        else if (!state.playing && ev.pointerType === 'mouse') move(ev);
+      });
+    }
+
+    document.addEventListener('keydown', (ev) => {
+      if (ev.code === 'Space' && !['INPUT', 'SELECT', 'BUTTON'].includes(ev.target.tagName)) {
+        // embedded on a long page: only claim the spacebar while the demo
+        // panel is on screen, so it never blocks spacebar page scrolling
+        const box = $('demo-scr').getBoundingClientRect();
+        if (box.bottom < 0 || box.top > window.innerHeight) return;
+        ev.preventDefault();
+        setPlaying(!state.playing);
+      }
+    });
+
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(relayout, 120);
+    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', relayout);
+
+    // přepínač motivu: auto → světlý → tmavý
+    const modes = ['auto', 'light', 'dark'];
+    let mi = 0;
+    $('theme').addEventListener('click', () => {
+      mi = (mi + 1) % modes.length;
+      const m = modes[mi];
+      if (m === 'auto') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', m);
+      $('theme-label').textContent = `Motiv: ${m === 'auto' ? 'auto' : m === 'light' ? 'světlý' : 'tmavý'}`;
+      relayout();
+    });
+  }
+
+  // ------------------------------------------------------------- načtení
+  async function init() {
+    try {
+      const [meta, buf] = await Promise.all([
+        fetch(`${BASE}smooth.json`).then((r) => r.json()),
+        fetch(`${BASE}smooth.bin`).then((r) => r.arrayBuffer()),
+      ]);
+      state.meta = meta;
+      state.N = meta.n;
+      state.t0 = meta.t0_min;
+      state.dt = meta.dt_min;
+      state.tEnd = Math.ceil(meta.t_end_min / 60) * 60;
+      meta.columns.forEach((name, k) => {
+        state.col[name] = new Float32Array(buf, k * meta.n * 4, meta.n);
+      });
+
+      const sl = $('slider');
+      sl.max = String(state.N - 1);
+      sl.value = '0';
+
+      // sdílitelný odkaz: ?t=<minuty>&log=1&in=0
+      const q = new URLSearchParams(location.search);
+      const tParam = Number(q.get('t'));
+      if (Number.isFinite(tParam) && tParam > 0) {
+        state.idx = Math.max(0, Math.min(state.N - 1, Math.round((tParam - state.t0) / state.dt)));
+        sl.value = String(state.idx);
+      }
+      if (q.has('log')) {
+        state.logNh3 = q.get('log') !== '0';
+        $('opt-log').checked = state.logNh3;
+      }
+      if (q.has('in')) {
+        state.showIn = q.get('in') !== '0';
+        $('opt-in').checked = state.showIn;
+      }
+
+      bind();
+      relayout();
+      $('status').textContent =
+        `${meta.n.toLocaleString('cs-CZ')} vzorků · ${meta.stride_s} s · ${meta.source}`;
+    } catch (err) {
+      $('status').textContent = `Data se nepodařilo načíst: ${err}`;
+    }
+  }
+
+  init();
+</script>

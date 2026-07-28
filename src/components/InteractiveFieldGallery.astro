@@ -1,0 +1,107 @@
+---
+/**
+ * Field log — full-bleed strip of 7 photos across the whole viewport.
+ * The active frame slowly expands while the others sit compressed; the strip
+ * auto-advances at a slow interval and hover/focus overrides the rotation.
+ * A mono log line under the strip carries the story of the active frame.
+ */
+import { galleryItems } from '../data/projects';
+
+const first = galleryItems[0];
+---
+
+<section id="field" class="border-b border-edge">
+  <div class="mx-auto max-w-7xl px-4 pt-16 pb-10 sm:px-8">
+    <h2 class="font-mono text-xs uppercase tracking-widest text-accent">Field Log</h2>
+    <p class="mt-2 font-display text-3xl font-bold uppercase tracking-tight text-ink sm:text-4xl">
+      Lab, Plant & Rock
+    </p>
+  </div>
+
+  <!-- Full-bleed strip: horizontal scroll on small screens, expanding flex row on md+ -->
+  <div
+    id="field-strip"
+    class="flex h-64 w-full snap-x snap-mandatory overflow-x-auto border-y border-edge md:h-96 md:snap-none md:overflow-hidden"
+  >
+    {galleryItems.map((item, i) => (
+      <button
+        type="button"
+        class="field-frame group relative h-full w-[70vw] shrink-0 snap-center overflow-hidden border-r border-edge last:border-r-0 transition-[flex-grow] duration-700 ease-in-out md:w-auto md:min-w-0 md:shrink md:basis-0 md:grow"
+        data-index={i}
+        aria-label={item.label}
+      >
+        <img
+          src={item.image}
+          alt={item.label}
+          loading={i < 2 ? 'eager' : 'lazy'}
+          class="h-full w-full object-cover transition-[filter,transform] duration-700 group-data-[active=false]:brightness-[0.55] group-data-[active=false]:saturate-[0.6]"
+        />
+        <span class="absolute bottom-0 left-0 bg-surface/85 px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-widest text-ink opacity-0 transition-opacity duration-500 group-data-[active=true]:opacity-100">
+          {String(i + 1).padStart(2, '0')} · {item.label}
+        </span>
+      </button>
+    ))}
+  </div>
+
+  <!-- Log line for the active frame -->
+  <div class="mx-auto flex max-w-7xl items-baseline gap-4 px-4 py-6 sm:px-8">
+    <p id="field-counter" class="shrink-0 font-mono text-xs tracking-widest text-accent">
+      01&thinsp;/&thinsp;{String(galleryItems.length).padStart(2, '0')}
+    </p>
+    <p id="field-story" class="font-mono text-xs leading-relaxed text-dim sm:text-sm">
+      {first.story}
+    </p>
+  </div>
+</section>
+
+<script>
+  import { galleryItems } from '../data/projects';
+
+  const ROTATE_MS = 5000;
+  const frames = Array.from(document.querySelectorAll<HTMLElement>('.field-frame'));
+  const storyEl = document.getElementById('field-story')!;
+  const counterEl = document.getElementById('field-counter')!;
+  const strip = document.getElementById('field-strip')!;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let active = 0;
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  function setActive(index: number) {
+    active = index;
+    frames.forEach((frame, i) => {
+      frame.dataset.active = String(i === index);
+      // Expanding-strip effect only applies on md+ where frames share the row.
+      frame.style.flexGrow = i === index ? '3.2' : '1';
+    });
+    const item = galleryItems[index];
+    storyEl.textContent = item.story;
+    counterEl.textContent = `${String(index + 1).padStart(2, '0')} / ${String(galleryItems.length).padStart(2, '0')}`;
+  }
+
+  function startRotation() {
+    if (reducedMotion || timer) return;
+    timer = setInterval(() => setActive((active + 1) % frames.length), ROTATE_MS);
+  }
+
+  function stopRotation() {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  frames.forEach((frame) => {
+    const index = Number(frame.dataset.index);
+    frame.addEventListener('mouseenter', () => setActive(index));
+    frame.addEventListener('focus', () => setActive(index));
+    frame.addEventListener('click', () => setActive(index));
+  });
+
+  // Hover anywhere on the strip pauses the slow rotation; leaving resumes it.
+  strip.addEventListener('mouseenter', stopRotation);
+  strip.addEventListener('mouseleave', startRotation);
+
+  setActive(0);
+  startRotation();
+</script>

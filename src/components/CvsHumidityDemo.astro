@@ -1,0 +1,511 @@
+---
+/**
+ * Live demo panel for P-01 (Škoda Auto CVS Humidity Simulation Tool),
+ * embedded inside its project record in ProjectsSection (in place of the
+ * STAR grid). Styled to match the WaterMpcDemo panel exactly (the shared
+ * Qt-operator-app design language): dark #222 background, #555-bordered
+ * panels, green/red status colors, white QProgressBar-style vertical bars
+ * with a #00aaff fill, and a #111 canvas trend chart.
+ *
+ * The psychrometric model runs fully client-side (see <script> below):
+ * Magnus saturation pressure, ambient humidity ratio, water added by
+ * exhaust combustion products under CVS dilution, and the resulting
+ * dilute-mixture dewpoint checked against the tunnel wall / filter
+ * temperature -> condensation-risk margin.
+ */
+---
+
+<div id="demo-cvs" class="cvs-root">
+  <div class="cvs-main">
+    <div class="app-grid">
+
+      <div class="panel inputs-panel">
+        <div class="panel-title">Test Conditions</div>
+
+        <div class="slider-box">
+          <label for="cvs-tamb">Ambient temperature <span id="cvs-tamb-val" class="slider-val">23.0 &deg;C</span></label>
+          <input type="range" id="cvs-tamb" min="10" max="40" step="0.5" value="23" />
+        </div>
+
+        <div class="slider-box">
+          <label for="cvs-rh">Ambient rel. humidity <span id="cvs-rh-val" class="slider-val">50 %</span></label>
+          <input type="range" id="cvs-rh" min="0" max="100" step="1" value="50" />
+        </div>
+
+        <div class="slider-box">
+          <label for="cvs-df">CVS dilution factor <span id="cvs-df-val" class="slider-val">12.0 : 1</span></label>
+          <input type="range" id="cvs-df" min="4" max="30" step="0.5" value="12" />
+        </div>
+
+        <div class="slider-box">
+          <label for="cvs-twall">Tunnel wall / filter temp <span id="cvs-twall-val" class="slider-val">25.0 &deg;C</span></label>
+          <input type="range" id="cvs-twall" min="15" max="50" step="0.5" value="25" />
+        </div>
+
+        <div class="select-box">
+          <label for="cvs-fuel">Fuel (exhaust H&#8322;O content)</label>
+          <select id="cvs-fuel">
+            <option value="gasoline" selected>Gasoline (stoich., ~13.5 vol% H&#8322;O)</option>
+            <option value="diesel">Diesel (lean, ~9.0 vol% H&#8322;O)</option>
+            <option value="cng">CNG (stoich., ~18.5 vol% H&#8322;O)</option>
+          </select>
+        </div>
+
+        <div class="control-row">
+          <button id="cvs-btn-reset" class="btn btn-reset">RESET TO CELL DEFAULTS</button>
+        </div>
+      </div>
+
+      <div class="panel check-panel">
+        <div class="panel-title">Condensation Check</div>
+
+        <div class="bars-row">
+          <div class="bar-column">
+            <span class="bar-label">Dewpoint</span>
+            <div class="qbar-frame">
+              <div id="cvs-bar-dp" class="qbar-fill"></div>
+              <span id="cvs-bar-dp-text" class="qbar-text">0.0 &deg;C</span>
+            </div>
+          </div>
+          <div class="bar-column">
+            <span class="bar-label">Wall</span>
+            <div class="qbar-frame">
+              <div id="cvs-bar-wall" class="qbar-fill"></div>
+              <span id="cvs-bar-wall-text" class="qbar-text">0.0 &deg;C</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="cvs-status" class="status-box status-ok">VALID</div>
+
+        <div class="readout-list">
+          <div class="readout-row"><span>Ambient hum. ratio</span><span id="cvs-out-w">&mdash;</span></div>
+          <div class="readout-row"><span>Dilute-mix H&#8322;O</span><span id="cvs-out-x">&mdash;</span></div>
+          <div class="readout-row"><span>Dilute-mix dewpoint</span><span id="cvs-out-td">&mdash;</span></div>
+          <div class="readout-row"><span>Dewpoint margin</span><span id="cvs-out-margin">&mdash;</span></div>
+        </div>
+      </div>
+
+      <div class="panel plot-panel">
+        <div class="panel-title">Dewpoint Sweep &mdash; Ambient RH 0&ndash;100 %</div>
+        <canvas id="cvs-trend-canvas" width="900" height="320"></canvas>
+        <div class="trend-legend">
+          <span class="legend-item"><i class="swatch swatch-dp"></i>Dilute-mix dewpoint</span>
+          <span class="legend-item"><i class="swatch swatch-wall"></i>Tunnel wall / filter temp</span>
+          <span class="legend-item"><i class="swatch-dot"></i>Operating point</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Theme copied from the shared operator-app design language
+     (WaterMpcDemo.astro, itself lifted from the real Qt Designer file):
+     dark #222 background, white text, green/red status colors,
+     #555-bordered group boxes, white progress bars with a #00aaff fill. */
+
+  .cvs-root {
+    --bg: #222;
+    --text: #eee;
+    --border: #555;
+    --panel-bg: #2c2c2c;
+    --green: rgb(0, 170, 50);
+    --red: rgb(170, 0, 0);
+    --blue-btn: rgb(0, 85, 127);
+    --hover: rgb(70, 70, 70);
+    --pressed: rgb(30, 30, 30);
+    --bar-chunk: #00aaff;
+
+    --c-dp: #00aaff;
+    --c-wall: #d99a1c;
+    --c-warn: #d99a1c;
+  }
+
+  .cvs-root, .cvs-root * { box-sizing: border-box; }
+
+  .cvs-root {
+    margin: 0;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    container-type: inline-size;
+    scroll-margin-top: 4.5rem;
+  }
+
+  .cvs-main { padding: 16px; }
+
+  .app-grid {
+    display: grid;
+    grid-template-columns: 260px 200px 1fr;
+    gap: 14px;
+  }
+  @container (max-width: 900px) {
+    .app-grid { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background-color: var(--panel-bg);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+
+  /* ── Inputs panel ──────────────────────────────────────────────────── */
+
+  .slider-box { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .slider-box label {
+    font-size: 13px;
+    color: #ccc;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .slider-val { font-weight: 700; color: var(--text); font-family: "Consolas", monospace; }
+  .slider-box input[type="range"] {
+    width: 100%;
+    height: 22px;
+    background-color: #1a1a1a;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 4px;
+    accent-color: var(--bar-chunk);
+    cursor: pointer;
+  }
+
+  .select-box { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .select-box label { font-size: 13px; color: #ccc; }
+  .select-box select {
+    background-color: #1a1a1a;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 13px;
+  }
+
+  .control-row { display: flex; gap: 12px; }
+
+  .btn {
+    flex: 1;
+    padding: 10px 4px;
+    border-radius: 5px;
+    font-size: 15px;
+    font-weight: 700;
+    color: white;
+    cursor: pointer;
+  }
+  .btn-reset { background-color: var(--blue-btn); border: 1px solid var(--blue-btn); }
+  .btn-reset:hover { background-color: var(--hover); }
+  .btn-reset:active { background-color: var(--pressed); }
+
+  /* ── Check panel: bars + status lamp (matches real QProgressBar) ───── */
+
+  .check-panel { display: flex; flex-direction: column; align-items: center; }
+
+  .bars-row { display: flex; gap: 18px; justify-content: center; margin-bottom: 14px; }
+  .bar-column { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .bar-label { font-size: 15px; }
+
+  .qbar-frame {
+    position: relative;
+    width: 60px;
+    height: 140px;
+    border: 2px solid var(--border);
+    border-radius: 5px;
+    background-color: #eee;
+    overflow: hidden;
+  }
+  .qbar-fill {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 0%;
+    background-color: var(--bar-chunk);
+    border-radius: 3px;
+    transition: height 0.15s linear;
+  }
+  .qbar-text {
+    position: absolute;
+    top: 8px; left: 0; right: 0;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #000;
+    text-shadow: 0 0 2px rgba(255,255,255,0.8);
+  }
+
+  .status-box {
+    width: 100%;
+    text-align: center;
+    padding: 10px 4px;
+    border-radius: 5px;
+    font-size: 15px;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 14px;
+  }
+  .status-ok   { background-color: var(--green); border: 1px solid var(--green); }
+  .status-warn { background-color: var(--c-warn); border: 1px solid var(--c-warn); color: #000; }
+  .status-risk { background-color: var(--red); border: 1px solid var(--red); }
+
+  .readout-list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+  .readout-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: #ccc;
+  }
+  .readout-row span:last-child {
+    font-weight: 700;
+    color: var(--text);
+    font-family: "Consolas", monospace;
+    white-space: nowrap;
+  }
+
+  /* ── Sweep chart ───────────────────────────────────────────────────── */
+
+  .plot-panel { min-width: 0; }
+  #cvs-trend-canvas {
+    width: 100%; height: 300px;
+    background-color: #111;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .trend-legend { display: flex; gap: 18px; margin-top: 8px; font-size: 12px; color: #ccc; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 14px; height: 4px; display: inline-block; border-radius: 1px; }
+  .swatch-dp { background: var(--c-dp); }
+  .swatch-wall { background: var(--c-wall); }
+  .swatch-dot {
+    width: 8px; height: 8px;
+    display: inline-block;
+    border-radius: 50%;
+    background: #eee;
+    border: 1px solid #888;
+    margin-right: -2px;
+  }
+</style>
+
+<script>
+  "use strict";
+
+  // ── Psychrometric model ─────────────────────────────────────────────
+  // All quantities on a molar (= volumetric, ideal gas) basis at ambient
+  // pressure. No backend — everything recomputes instantly on input.
+
+  const P_TOTAL = 101325; // Pa, ambient pressure (sea-level standard)
+  const T_SCALE_MAX = 50; // °C, shared scale of the two vertical bars
+  const MARGIN_WARN_K = 3; // K, below this the run is flagged as marginal
+
+  // Exhaust water content (vol fraction, wet basis) from complete
+  // combustion in air: gasoline ~CH1.85 stoichiometric -> ~13.5 vol% H2O;
+  // diesel ~CH1.8 at typical lean AFR -> ~9 vol%; CNG (CH4) stoich -> ~18.5 vol%.
+  const FUEL_X_H2O = { gasoline: 0.135, diesel: 0.09, cng: 0.185 };
+
+  const DEFAULTS = { tamb: 23, rh: 50, df: 12, twall: 25, fuel: "gasoline" };
+
+  // Saturation vapor pressure over water, Magnus formula with WMO/Sonntag
+  // coefficients: e_s(T) = 611.2 * exp(17.62*T / (243.12 + T)) [Pa], T in °C.
+  // Good to <0.1 % over -45..60 °C.
+  function satPressure(tC) {
+    return 611.2 * Math.exp((17.62 * tC) / (243.12 + tC));
+  }
+
+  // Inverse Magnus: dewpoint [°C] from water vapor partial pressure e [Pa].
+  function dewpointFromPressure(e) {
+    const g = Math.log(e / 611.2);
+    return (243.12 * g) / (17.62 - g);
+  }
+
+  // Dilute CVS mixture: mole-fraction mixing of exhaust and dilution air.
+  // DF = Q_cvs / Q_exhaust, so  x_mix = x_exh/DF + x_amb*(1 - 1/DF).
+  function computeState(tamb, rh, df, twall, fuel) {
+    const eAmb = (rh / 100) * satPressure(tamb); // ambient H2O partial pressure [Pa]
+    const xAmb = eAmb / P_TOTAL;                 // ambient H2O mole fraction [-]
+    // Humidity ratio w = 0.622 * e / (p - e)  [kg water / kg dry air]
+    const wAmb = (0.622 * eAmb) / (P_TOTAL - eAmb);
+    const xMix = FUEL_X_H2O[fuel] / df + xAmb * (1 - 1 / df);
+    const tdMix = dewpointFromPressure(xMix * P_TOTAL);
+    return {
+      wAmb: wAmb * 1000,       // g/kg dry air
+      xMix: xMix * 100,        // vol %
+      tdMix,                   // °C
+      margin: twall - tdMix,   // K; condensation when <= 0
+    };
+  }
+
+  // ── DOM ─────────────────────────────────────────────────────────────
+
+  const el = (id) => document.getElementById(id);
+  const inTamb = el("cvs-tamb");
+  const inRh = el("cvs-rh");
+  const inDf = el("cvs-df");
+  const inTwall = el("cvs-twall");
+  const inFuel = el("cvs-fuel");
+
+  const canvas = el("cvs-trend-canvas");
+  const ctx2d = canvas.getContext("2d");
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const c = canvas.getContext("2d");
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: rect.width, h: rect.height };
+  }
+  window.addEventListener("resize", () => update());
+
+  function readInputs() {
+    return {
+      tamb: parseFloat(inTamb.value),
+      rh: parseFloat(inRh.value),
+      df: parseFloat(inDf.value),
+      twall: parseFloat(inTwall.value),
+      fuel: inFuel.value,
+    };
+  }
+
+  function setBar(fillId, textId, tC) {
+    const pct = Math.max(0, Math.min(100, (tC / T_SCALE_MAX) * 100));
+    el(fillId).style.height = pct + "%";
+    el(textId).textContent = tC.toFixed(1) + " °C";
+  }
+
+  function update() {
+    const v = readInputs();
+
+    el("cvs-tamb-val").textContent = v.tamb.toFixed(1) + " °C";
+    el("cvs-rh-val").textContent = v.rh.toFixed(0) + " %";
+    el("cvs-df-val").textContent = v.df.toFixed(1) + " : 1";
+    el("cvs-twall-val").textContent = v.twall.toFixed(1) + " °C";
+
+    const s = computeState(v.tamb, v.rh, v.df, v.twall, v.fuel);
+
+    setBar("cvs-bar-dp", "cvs-bar-dp-text", s.tdMix);
+    setBar("cvs-bar-wall", "cvs-bar-wall-text", v.twall);
+
+    el("cvs-out-w").textContent = s.wAmb.toFixed(2) + " g/kg";
+    el("cvs-out-x").textContent = s.xMix.toFixed(2) + " vol%";
+    el("cvs-out-td").textContent = s.tdMix.toFixed(1) + " °C";
+    el("cvs-out-margin").textContent = s.margin.toFixed(1) + " K";
+
+    const status = el("cvs-status");
+    status.classList.remove("status-ok", "status-warn", "status-risk");
+    if (s.margin <= 0) {
+      status.classList.add("status-risk");
+      status.textContent = "CONDENSATION RISK";
+    } else if (s.margin < MARGIN_WARN_K) {
+      status.classList.add("status-warn");
+      status.textContent = "MARGINAL (< " + MARGIN_WARN_K + " K)";
+    } else {
+      status.classList.add("status-ok");
+      status.textContent = "VALID";
+    }
+
+    drawSweep(v);
+  }
+
+  // Sweep chart: dilute-mix dewpoint vs ambient RH 0-100 % at the current
+  // temperature / dilution / fuel settings, wall temp as a dashed limit
+  // line, and the current operating point marked.
+  function drawSweep(v) {
+    const dims = resizeCanvas();
+    if (!dims) return;
+    const { w, h } = dims;
+    ctx2d.clearRect(0, 0, w, h);
+
+    const padL = 36, padR = 10, padT = 10, padB = 20;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+
+    const yMin = 0, yMax = T_SCALE_MAX; // °C
+    const x = (rh) => padL + (rh / 100) * plotW;
+    const y = (t) => padT + plotH - ((t - yMin) / (yMax - yMin)) * plotH;
+
+    // grid + axis labels
+    ctx2d.strokeStyle = "#333";
+    ctx2d.fillStyle = "#888";
+    ctx2d.font = "10px sans-serif";
+    for (let i = 0; i <= 5; i++) {
+      const gy = padT + (plotH * i) / 5;
+      ctx2d.beginPath();
+      ctx2d.moveTo(padL, gy);
+      ctx2d.lineTo(w - padR, gy);
+      ctx2d.stroke();
+      ctx2d.fillText(String(Math.round(yMax - ((yMax - yMin) * i) / 5)), 6, gy + 3);
+    }
+    for (let i = 0; i <= 5; i++) {
+      const rhLabel = (100 * i) / 5;
+      const gx = x(rhLabel);
+      ctx2d.beginPath();
+      ctx2d.moveTo(gx, padT);
+      ctx2d.lineTo(gx, padT + plotH);
+      ctx2d.stroke();
+      ctx2d.fillText(rhLabel.toFixed(0) + "%", gx - 8, h - 6);
+    }
+
+    // wall / filter temperature limit (dashed)
+    ctx2d.strokeStyle = "#d99a1c";
+    ctx2d.lineWidth = 1.8;
+    ctx2d.setLineDash([5, 4]);
+    ctx2d.beginPath();
+    ctx2d.moveTo(padL, y(v.twall));
+    ctx2d.lineTo(w - padR, y(v.twall));
+    ctx2d.stroke();
+    ctx2d.setLineDash([]);
+
+    // dewpoint curve over the RH sweep
+    ctx2d.strokeStyle = "#00aaff";
+    ctx2d.lineWidth = 1.8;
+    ctx2d.beginPath();
+    for (let rh = 0; rh <= 100; rh += 2) {
+      const s = computeState(v.tamb, rh, v.df, v.twall, v.fuel);
+      const px = x(rh);
+      const py = y(Math.max(yMin, Math.min(yMax, s.tdMix)));
+      if (rh === 0) ctx2d.moveTo(px, py); else ctx2d.lineTo(px, py);
+    }
+    ctx2d.stroke();
+
+    // operating point
+    const sOp = computeState(v.tamb, v.rh, v.df, v.twall, v.fuel);
+    ctx2d.fillStyle = "#eee";
+    ctx2d.strokeStyle = "#888";
+    ctx2d.lineWidth = 1;
+    ctx2d.beginPath();
+    ctx2d.arc(x(v.rh), y(Math.max(yMin, Math.min(yMax, sOp.tdMix))), 4.5, 0, Math.PI * 2);
+    ctx2d.fill();
+    ctx2d.stroke();
+  }
+
+  function resetDefaults() {
+    inTamb.value = String(DEFAULTS.tamb);
+    inRh.value = String(DEFAULTS.rh);
+    inDf.value = String(DEFAULTS.df);
+    inTwall.value = String(DEFAULTS.twall);
+    inFuel.value = DEFAULTS.fuel;
+    update();
+  }
+
+  [inTamb, inRh, inDf, inTwall].forEach((input) =>
+    input.addEventListener("input", update)
+  );
+  inFuel.addEventListener("change", update);
+  el("cvs-btn-reset").addEventListener("click", resetDefaults);
+
+  update();
+</script>

@@ -1,0 +1,79 @@
+{
+  "source": "scr_smooth · XMR 4.8.3 Fe-ZSM5 SCR (89×89×85 cm)",
+  "n": 12600,
+  "t0_min": 0.0,
+  "dt_min": 0.03333333333333333,
+  "t_end_min": 419.96666666666664,
+  "stride_s": 2,
+  "columns": [
+    "tin_C",
+    "nox_in",
+    "nox_pid",
+    "nox_nmpc",
+    "nh3_pid",
+    "nh3_nmpc"
+  ],
+  "ranges": {
+    "tin_C": [
+      150.166,
+      427.0
+    ],
+    "nox_in": [
+      1.0895,
+      2734.0
+    ],
+    "nox_pid": [
+      17.5706,
+      1505.0927
+    ],
+    "nox_nmpc": [
+      17.1531,
+      1505.0927
+    ],
+    "nh3_pid": [
+      0.0,
+      262.4635
+    ],
+    "nh3_nmpc": [
+      0.0,
+      0.9166
+    ]
+  },
+  "stages": [
+    {
+      "label": "10 %",
+      "start": 0,
+      "end": 60
+    },
+    {
+      "label": "25 %",
+      "start": 65,
+      "end": 125
+    },
+    {
+      "label": "50 %",
+      "start": 130,
+      "end": 190
+    },
+    {
+      "label": "75 %",
+      "start": 195,
+      "end": 255
+    },
+    {
+      "label": "100 %",
+      "start": 260,
+      "end": 320
+    },
+    {
+      "label": "75 %",
+      "start": 325,
+      "end": 385
+    },
+    {
+      "label": "Stop",
+      "start": 385,
+      "end": 420
+    }
+  ]
+}

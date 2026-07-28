@@ -1,0 +1,33 @@
+---
+/**
+ * Base layout: head metadata, global styles, graphite instrument-sheet canvas.
+ * Smooth scrolling and the faint engineering grid live in global.css.
+ */
+import '../styles/global.css';
+import { siteInfo } from '../data/projects';
+
+interface Props {
+  /** Page title; defaults to name + role. */
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = `${siteInfo.name} | ${siteInfo.title}`,
+  description = siteInfo.heroSubtitle,
+} = Astro.props;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+  </head>
+  <body class="bg-surface font-sans text-ink antialiased selection:bg-accent selection:text-surface">
+    <slot />
+  </body>
+</html>

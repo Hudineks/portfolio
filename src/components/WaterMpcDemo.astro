@@ -1,0 +1,451 @@
+---
+/**
+ * Live demo panel for P-03, embedded inside its project record in
+ * ProjectsSection (in place of the STAR grid).
+ * Markup, styles, and playback script are taken as-is from the user's own
+ * design in src/data/vodarna_demo/static/ (index.html / style.css / app.js),
+ * which mirrors the real Qt operator app (Vodarna20.ui). Only unavoidable
+ * adaptations were made for embedding:
+ *   - :root/body selectors -> .vodarna-root wrapper
+ *   - topbar header and statusbar footer removed (panel sits inside the record)
+ *   - viewport media query -> container query so the app-grid stacks by
+ *     available width, not window width
+ *   - cycle list hardcoded and JSON fetched from /demo/water-mpc/ (no Flask API)
+ */
+---
+
+<div id="demo" class="vodarna-root">
+      <div class="vd-main">
+        <div class="app-grid">
+
+          <div class="panel control-panel">
+            <div class="panel-title">Control Panel</div>
+            <div class="control-row">
+              <button id="btn-start" class="btn btn-start">START</button>
+              <button id="btn-stop" class="btn btn-stop">STOP</button>
+            </div>
+            <div class="recipe-box">
+              <label for="cycle-select">Recipe</label>
+              <select id="cycle-select"></select>
+            </div>
+            <div class="clock-box">
+              <span class="clock-label">Clock</span>
+              <span id="clock-value" class="clock-value">00:00:00</span>
+            </div>
+          </div>
+
+          <div class="panel tanks-panel">
+            <div class="tank-column">
+              <span class="tank-label">Upper Tank</span>
+              <div class="qbar-frame">
+                <div id="bar-h1" class="qbar-fill"></div>
+                <span id="bar-h1-text" class="qbar-text">0.0 cm</span>
+              </div>
+            </div>
+            <div class="tank-column">
+              <span class="tank-label">Lower Tank</span>
+              <div class="qbar-frame">
+                <div id="bar-h2" class="qbar-fill"></div>
+                <div id="bar-h2-sp" class="qbar-sp-marker"></div>
+                <span id="bar-h2-text" class="qbar-text">0.0 cm</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel plot-panel">
+            <div class="panel-title">Main Panel — Trend</div>
+            <canvas id="trend-canvas" width="900" height="320"></canvas>
+            <div class="trend-legend">
+              <span class="legend-item"><i class="swatch swatch-h2"></i>Lower Tank (H2, measured)</span>
+              <span class="legend-item"><i class="swatch swatch-sp"></i>Target Level (SP)</span>
+              <span class="legend-item"><i class="swatch swatch-u"></i>Control Action (U)</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+</div>
+
+<style>
+  /* Theme lifted directly from the real app's Qt Designer file
+     (src/control/Vodarna20.ui): dark #222 background, white text,
+     green/red Start/Stop buttons, #555-bordered group boxes,
+     white progress-bar "tanks" with a #00aaff fill. */
+
+  .vodarna-root {
+    --bg: #222;
+    --text: #eee;
+    --border: #555;
+    --panel-bg: #2c2c2c;
+    --green: rgb(0, 170, 50);
+    --red: rgb(170, 0, 0);
+    --blue-btn: rgb(0, 85, 127);
+    --hover: rgb(70, 70, 70);
+    --pressed: rgb(30, 30, 30);
+    --bar-chunk: #00aaff;
+
+    --c-h2: #cc2b2b;
+    --c-sp: #d99a1c;
+    --c-u: #2f9e44;
+  }
+
+  .vodarna-root, .vodarna-root * { box-sizing: border-box; }
+
+  .vodarna-root {
+    margin: 0;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    container-type: inline-size;
+    scroll-margin-top: 4.5rem;
+  }
+
+  .vd-main { padding: 16px; }
+
+  .app-grid {
+    display: grid;
+    grid-template-columns: 260px 200px 1fr;
+    gap: 14px;
+  }
+  @container (max-width: 900px) {
+    .app-grid { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background-color: var(--panel-bg);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+
+  /* ── Control panel ─────────────────────────────────────────────────── */
+
+  .control-row { display: flex; gap: 12px; margin-bottom: 16px; }
+
+  .btn {
+    flex: 1;
+    padding: 10px 4px;
+    border-radius: 5px;
+    font-size: 15px;
+    font-weight: 700;
+    color: white;
+    cursor: pointer;
+  }
+  .btn-start { background-color: var(--green); border: 1px solid var(--green); }
+  .btn-start:hover { background-color: var(--hover); }
+  .btn-start:active { background-color: var(--pressed); }
+  .btn-stop { background-color: var(--red); border: 1px solid var(--red); }
+  .btn-stop:hover { background-color: var(--hover); }
+  .btn-stop:active { background-color: var(--pressed); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+
+  .recipe-box { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+  .recipe-box label { font-size: 13px; color: #ccc; }
+  .recipe-box select {
+    background-color: #1a1a1a;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 13px;
+  }
+
+  .clock-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .clock-label { font-size: 13px; color: #ccc; }
+  .clock-value { font-size: 20px; font-weight: 700; font-family: "Consolas", monospace; }
+
+  /* ── Tank progress bars (matches real QProgressBar styling) ──────────── */
+
+  .tanks-panel { display: flex; flex-direction: column; gap: 18px; align-items: center; justify-content: center; }
+  .tank-column { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .tank-label { font-size: 15px; }
+
+  .qbar-frame {
+    position: relative;
+    width: 60px;
+    height: 140px;
+    border: 2px solid var(--border);
+    border-radius: 5px;
+    background-color: #eee;
+    overflow: hidden;
+  }
+  .qbar-fill {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 0%;
+    background-color: var(--bar-chunk);
+    border-radius: 3px;
+    transition: height 0.15s linear;
+  }
+  .qbar-sp-marker {
+    position: absolute;
+    left: -3px; right: -3px;
+    height: 2px;
+    bottom: 0%;
+    background-color: var(--c-sp);
+    box-shadow: 0 0 3px var(--c-sp);
+  }
+  .qbar-text {
+    position: absolute;
+    top: 8px; left: 0; right: 0;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: #000;
+    text-shadow: 0 0 2px rgba(255,255,255,0.8);
+  }
+
+  /* ── Trend chart ───────────────────────────────────────────────────── */
+
+  .plot-panel { min-width: 0; }
+  #trend-canvas {
+    width: 100%; height: 300px;
+    background-color: #111;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .trend-legend { display: flex; gap: 18px; margin-top: 8px; font-size: 12px; color: #ccc; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 14px; height: 4px; display: inline-block; border-radius: 1px; }
+  .swatch-h2 { background: var(--c-h2); }
+  .swatch-sp { background: var(--c-sp); }
+  .swatch-u  { background: var(--c-u); }
+</style>
+
+<script>
+  "use strict";
+
+  const TANK_MAX_CM = 30; // matches the real app's QProgressBar maximum
+  const PLAYBACK_SPEED = 6; // simulated seconds per real second
+  const DEFAULT_CYCLE = "Step_Cycle";
+  const COLORS = { h2: "#cc2b2b", sp: "#d99a1c", u: "#2f9e44" };
+  const WINDOW_SEC = 4 * 60; // trend x-axis: fixed 0-4min, then scrolls to show the last 4 minutes
+
+  // Static build: no Flask API — the precomputed JSONs live under /demo/water-mpc/.
+  const AVAILABLE_CYCLES = ["Step_Cycle", "Ramp_Cycle"];
+  const DATA_BASE = "/demo/water-mpc";
+
+  let cache = {};      // name -> {name, period, series}
+  let playing = false;
+  let rafId = null;
+  let playStartMs = null;
+  let simSeconds = 0;
+  let activeData = null;
+
+  const canvas = document.getElementById("trend-canvas");
+  const ctx2d = canvas.getContext("2d");
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const c = canvas.getContext("2d");
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: rect.width, h: rect.height };
+  }
+  window.addEventListener("resize", () => drawTrend());
+
+  function findIndexForTime(series, tSec) {
+    const arr = series.t;
+    let lo = 0, hi = arr.length - 1;
+    if (tSec <= arr[0]) return 0;
+    if (tSec >= arr[hi]) return hi;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (arr[mid] <= tSec) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
+
+  function drawTrend() {
+    const dims = resizeCanvas();
+    if (!dims) return;
+    const { w, h } = dims;
+    ctx2d.clearRect(0, 0, w, h);
+    if (!activeData) return;
+
+    const padL = 36, padR = 10, padT = 10, padB = 20;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+
+    // Fixed 0-4min window until t=4min, then scroll to always show the last 4 minutes.
+    const domainEnd = Math.max(simSeconds, WINDOW_SEC);
+    const domainStart = domainEnd - WINDOW_SEC;
+    const levelMax = 21;
+    const uMax = 17;
+
+    function x(t) { return padL + ((t - domainStart) / WINDOW_SEC) * plotW; }
+    function yLevel(v) { return padT + plotH - (v / levelMax) * plotH; }
+    function yU(v) { return padT + plotH - (v / uMax) * plotH; }
+
+    ctx2d.strokeStyle = "#333";
+    ctx2d.fillStyle = "#888";
+    ctx2d.font = "10px sans-serif";
+    for (let i = 0; i <= 4; i++) {
+      const gy = padT + (plotH * i) / 4;
+      ctx2d.beginPath();
+      ctx2d.moveTo(padL, gy);
+      ctx2d.lineTo(w - padR, gy);
+      ctx2d.stroke();
+      ctx2d.fillText(String(Math.round(levelMax * (1 - i / 4))), 2, gy + 3);
+    }
+    // x-axis time labels (minutes)
+    for (let i = 0; i <= 4; i++) {
+      const tLabel = domainStart + (WINDOW_SEC * i) / 4;
+      const gx = padL + (plotW * i) / 4;
+      ctx2d.fillText((tLabel / 60).toFixed(1) + "m", gx - 10, h - 4);
+    }
+
+    const startIdx = findIndexForTime(activeData.series, domainStart);
+    const cutoffIdx = findIndexForTime(activeData.series, simSeconds);
+
+    function drawSeries(key, yFn, color) {
+      const arr = activeData.series[key];
+      const tArr = activeData.series.t;
+      ctx2d.strokeStyle = color;
+      ctx2d.lineWidth = 1.8;
+      ctx2d.beginPath();
+      let started = false;
+      for (let i = startIdx; i <= cutoffIdx; i++) {
+        const px = x(tArr[i]);
+        const py = yFn(arr[i]);
+        if (!started) { ctx2d.moveTo(px, py); started = true; } else { ctx2d.lineTo(px, py); }
+      }
+      ctx2d.stroke();
+    }
+
+    drawSeries("sp", yLevel, COLORS.sp);
+    drawSeries("h2", yLevel, COLORS.h2);
+    drawSeries("u", yU, COLORS.u);
+
+    // playhead
+    ctx2d.strokeStyle = "#777";
+    ctx2d.setLineDash([3, 3]);
+    ctx2d.beginPath();
+    ctx2d.moveTo(x(simSeconds), padT);
+    ctx2d.lineTo(x(simSeconds), padT + plotH);
+    ctx2d.stroke();
+    ctx2d.setLineDash([]);
+  }
+
+  function updateTanksAndClock() {
+    if (!activeData) return;
+    const idx = findIndexForTime(activeData.series, simSeconds);
+    const h1 = activeData.series.h1_hat[idx];
+    const h2 = activeData.series.h2[idx];
+    const sp = activeData.series.sp[idx];
+
+    const h1Pct = Math.max(0, Math.min(100, (h1 / TANK_MAX_CM) * 100));
+    const h2Pct = Math.max(0, Math.min(100, (h2 / TANK_MAX_CM) * 100));
+    const spPct = Math.max(0, Math.min(100, (sp / TANK_MAX_CM) * 100));
+
+    document.getElementById("bar-h1").style.height = h1Pct + "%";
+    document.getElementById("bar-h2").style.height = h2Pct + "%";
+    document.getElementById("bar-h2-sp").style.bottom = spPct + "%";
+    document.getElementById("bar-h1-text").textContent = h1.toFixed(1) + " cm";
+    document.getElementById("bar-h2-text").textContent = h2.toFixed(1) + " cm";
+
+    const totalSec = Math.floor(simSeconds);
+    const hh = String(Math.floor(totalSec / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, "0");
+    const ss = String(totalSec % 60).padStart(2, "0");
+    document.getElementById("clock-value").textContent = `${hh}:${mm}:${ss}`;
+  }
+
+  function tick(nowMs) {
+    if (!playing) return;
+    const elapsedRealSec = (nowMs - playStartMs) / 1000;
+    simSeconds = elapsedRealSec * PLAYBACK_SPEED;
+
+    const duration = activeData.series.t[activeData.series.t.length - 1];
+    if (simSeconds >= duration) {
+      simSeconds = duration;
+      updateTanksAndClock();
+      drawTrend();
+      stopPlayback(false);
+      return;
+    }
+
+    updateTanksAndClock();
+    drawTrend();
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function startPlayback() {
+    if (!activeData) return;
+    playing = true;
+    simSeconds = 0;
+    playStartMs = performance.now();
+    document.getElementById("btn-start").disabled = true;
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function stopPlayback(reset) {
+    playing = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    document.getElementById("btn-start").disabled = false;
+    if (reset !== false) {
+      simSeconds = 0;
+      updateTanksAndClock();
+      drawTrend();
+    }
+  }
+
+  async function loadCycle(name) {
+    if (cache[name]) return cache[name];
+    const res = await fetch(`${DATA_BASE}/${encodeURIComponent(name)}.json`);
+    if (!res.ok) throw new Error(`No precomputed data for ${name}`);
+    const data = await res.json();
+    cache[name] = data;
+    return data;
+  }
+
+  async function selectCycle(name) {
+    try {
+      activeData = await loadCycle(name);
+      simSeconds = 0;
+      updateTanksAndClock();
+      drawTrend();
+      startPlayback();
+    } catch (e) {
+      console.warn(`No precomputed data for cycle "${name}"`);
+    }
+  }
+
+  async function init() {
+    const cycles = AVAILABLE_CYCLES;
+    const select = document.getElementById("cycle-select");
+    select.innerHTML = "";
+    cycles.forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = name; opt.textContent = name;
+      select.appendChild(opt);
+    });
+    const initial = cycles.includes(DEFAULT_CYCLE) ? DEFAULT_CYCLE : cycles[0];
+    if (initial) {
+      select.value = initial;
+      await selectCycle(initial);
+    }
+
+    select.addEventListener("change", () => {
+      stopPlayback(true);
+      selectCycle(select.value);
+    });
+    document.getElementById("btn-start").addEventListener("click", startPlayback);
+    document.getElementById("btn-stop").addEventListener("click", () => stopPlayback(true));
+  }
+
+  init();
+</script>

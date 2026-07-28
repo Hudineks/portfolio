@@ -1,0 +1,32 @@
+---
+/**
+ * Tech stack: three hairline-divided columns, mono item lists.
+ * Driven by techStack in src/data/projects.ts.
+ */
+import { techStack } from '../data/projects';
+---
+
+<section id="stack" class="border-b border-edge">
+  <div class="mx-auto max-w-7xl px-4 pt-16 sm:px-8">
+    <h2 class="font-mono text-xs uppercase tracking-widest text-accent">Stack</h2>
+    <p class="mt-2 font-display text-3xl font-bold uppercase tracking-tight text-ink sm:text-4xl">
+      Instruments & Tools
+    </p>
+  </div>
+
+  <div class="mx-auto grid max-w-7xl divide-y divide-edge px-4 py-12 sm:px-8 md:grid-cols-3 md:divide-x md:divide-y-0">
+    {techStack.map((category) => (
+      <div class="py-8 md:py-2 md:px-8 md:first:pl-0 md:last:pr-0">
+        <h3 class="font-mono text-xs uppercase tracking-widest text-dim">{category.title}</h3>
+        <ul class="mt-5 space-y-2.5">
+          {category.items.map((item) => (
+            <li class="flex items-baseline gap-3 text-sm text-ink/85">
+              <span class="h-px w-4 shrink-0 translate-y-[-3px] bg-accent/60"></span>
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </div>
+</section>

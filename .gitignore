@@ -20,5 +20,15 @@ pnpm-debug.log*
 # macOS-specific files
 .DS_Store
 
+# Windows-specific files
+*Zone.Identifier
+
+# local source material (not part of the site)
+src/data/pictures/
+src/data/portfolio/
+src/data/vodarna_demo/
+src/data/web_smooth/
+src/data/Project_Portfolio2601.pdf
+
 # jetbrains setting folder
 .idea/
