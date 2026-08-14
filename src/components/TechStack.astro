@@ -1,23 +1,146 @@
 ---
 /**
- * Tech stack: three hairline-divided columns, mono item lists.
- * Driven by techStack in src/data/projects.ts.
+ * Stack section: horizontal experience timeline (a glowing time axis;
+ * milestone dots on the line, conference/award diamonds on stems above it;
+ * hover or focus a marker to read its card) followed by the three-column
+ * instruments & tools grid.
+ * Driven by experienceTimeline and techStack in src/data/projects.ts.
  */
-import { techStack } from '../data/projects';
+import { techStack, experienceTimeline } from '../data/projects';
+
+const milestones = experienceTimeline.filter((e) => e.kind === 'milestone');
+const conferences = experienceTimeline.filter((e) => e.kind === 'conference');
+
+/** Year gridline positions matching the (slightly stretched) time scale. */
+const yearTicks = [3, 17, 31, 45, 62, 88];
+
+/** Card alignment so edge cards stay inside the container. */
+function cardAlign(pos: number): string {
+  if (pos < 14) return 'left-0';
+  if (pos > 86) return 'right-0';
+  return 'left-1/2 -translate-x-1/2';
+}
+
+/** Invisible hover bridge below the card so the pointer can reach links. */
+const cardBridge = "before:absolute before:left-0 before:right-0 before:top-full before:h-10 before:content-['']";
 ---
 
 <section id="stack" class="border-b border-edge">
   <div class="mx-auto max-w-7xl px-4 pt-16 sm:px-8">
     <h2 class="font-mono text-xs uppercase tracking-widest text-accent">Stack</h2>
     <p class="mt-2 font-display text-3xl font-bold uppercase tracking-tight text-ink sm:text-4xl">
-      Instruments & Tools
+      Experience & Tools
     </p>
   </div>
 
-  <div class="mx-auto grid max-w-7xl divide-y divide-edge px-4 py-12 sm:px-8 md:grid-cols-3 md:divide-x md:divide-y-0">
+  <!-- Experience timeline -->
+  <div class="mx-auto max-w-7xl px-4 pt-12 sm:px-8">
+    <h3 class="font-mono text-xs uppercase tracking-widest text-dim">
+      Timeline <span class="normal-case tracking-normal">· hover the markers</span>
+    </h3>
+  </div>
+  <div class="overflow-x-auto lg:overflow-visible">
+    <div class="mx-auto max-w-7xl px-4 sm:px-8">
+      <div id="tl-wrap" class="relative min-w-[900px] pb-16 pt-80 lg:pt-32">
+        <!-- the axis -->
+        <div class="tl-line relative h-[2px]">
+          <!-- year gridlines -->
+          {yearTicks.map((tick) => (
+            <span class="absolute top-[3px] h-2 w-px bg-edge" style={`left:${tick}%`}></span>
+          ))}
+
+          <!-- conferences & awards: diamonds on stems above the line -->
+          {conferences.map((entry) => (
+            <div class="tl-mark group absolute bottom-0" data-active="false" style={`left:${entry.pos}%`}>
+              <span class="absolute bottom-0 left-0 h-4 w-px -translate-x-1/2 bg-accent/50"></span>
+              <button
+                type="button"
+                class={`tl-diamond absolute bottom-4 left-0 h-3 w-3 -translate-x-1/2 rotate-45 border border-accent transition-all duration-200 after:absolute after:-inset-[39px] after:rounded-full after:content-[''] group-data-[active=true]:scale-125 group-data-[active=true]:bg-accent group-focus-within:scale-125 group-focus-within:bg-accent ${
+                  entry.badge ? 'bg-accent/70' : 'bg-surface'
+                }`}
+                aria-label={`${entry.label}: ${entry.title}`}
+              ></button>
+              <p
+                class={`tl-label absolute bottom-8 left-0 -translate-x-1/2 whitespace-nowrap font-mono text-[11px] uppercase tracking-widest transition-colors group-data-[active=true]:text-accent group-focus-within:text-accent ${
+                  entry.badge ? 'text-accent/90' : 'text-dim'
+                }`}
+              >
+                {entry.label}
+              </p>
+
+              <div
+                class={`tl-card invisible absolute bottom-14 z-20 w-80 border border-edge border-t-2 border-t-accent bg-panel p-5 opacity-0 shadow-2xl transition-all duration-200 group-data-[active=true]:visible group-data-[active=true]:opacity-100 group-focus-within:visible group-focus-within:opacity-100 ${cardBridge} ${cardAlign(entry.pos)}`}
+              >
+                <p class="flex flex-wrap items-center gap-2 font-mono text-xs uppercase tracking-widest text-accent">
+                  {entry.label.split('·')[0].trim()}
+                  {entry.badge && (
+                    <span class="border border-accent px-1.5 py-0.5 text-[10px] text-accent">
+                      {entry.badge}
+                    </span>
+                  )}
+                </p>
+                <p class="mt-1 font-display text-lg font-bold uppercase leading-tight tracking-tight text-ink">
+                  {entry.title}
+                </p>
+                <p class="mt-0.5 font-mono text-xs uppercase tracking-widest text-dim">{entry.org}</p>
+                <p class="mt-3 text-sm leading-relaxed text-ink/85">{entry.note}</p>
+              </div>
+            </div>
+          ))}
+
+          <!-- milestones: dots on the line, labels below -->
+          {milestones.map((entry) => (
+            <div class="tl-mark group absolute top-1/2" data-active="false" style={`left:${entry.pos}%`}>
+              <button
+                type="button"
+                class="tl-dot absolute left-0 top-0 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-surface transition-all duration-200 after:absolute after:-inset-[37px] after:rounded-full after:content-[''] group-data-[active=true]:scale-125 group-data-[active=true]:bg-accent group-focus-within:scale-125 group-focus-within:bg-accent"
+                aria-label={`${entry.label}: ${entry.title}`}
+              ></button>
+              <p class="tl-label absolute left-0 top-4 -translate-x-1/2 whitespace-nowrap font-mono text-[11px] uppercase tracking-widest text-dim transition-colors group-data-[active=true]:text-accent group-focus-within:text-accent">
+                {entry.label}
+              </p>
+
+              <div
+                class={`tl-card invisible absolute bottom-6 z-20 w-80 border border-edge border-t-2 border-t-accent bg-panel p-5 opacity-0 shadow-2xl transition-all duration-200 group-data-[active=true]:visible group-data-[active=true]:opacity-100 group-focus-within:visible group-focus-within:opacity-100 ${cardBridge} ${cardAlign(entry.pos)}`}
+              >
+                <p class="font-mono text-xs uppercase tracking-widest text-accent">{entry.label}</p>
+                <p class="mt-1 font-display text-lg font-bold uppercase leading-tight tracking-tight text-ink">
+                  {entry.title}
+                </p>
+                {entry.orgHref ? (
+                  <a
+                    href={entry.orgHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="mt-0.5 inline-block font-mono text-xs uppercase tracking-widest text-accent underline decoration-edge underline-offset-4 hover:decoration-accent"
+                  >
+                    {entry.org} ↗
+                  </a>
+                ) : (
+                  <p class="mt-0.5 font-mono text-xs uppercase tracking-widest text-dim">{entry.org}</p>
+                )}
+                <p class="mt-3 text-sm leading-relaxed text-ink/85">{entry.note}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Foundations & tools -->
+  <div class="mx-auto max-w-7xl border-t border-edge px-4 pt-10 sm:px-8">
+    <h3 class="font-mono text-xs uppercase tracking-widest text-dim">Foundations & Tools</h3>
+    <p class="mt-3 max-w-2xl text-sm leading-relaxed text-dim">
+      The foundation is physics, chemistry, and control theory from UCT Prague: sensors,
+      process modeling, and signal processing in depth. Tools are picked per project and
+      learned as needed, with AI in the loop.
+    </p>
+  </div>
+  <div class="mx-auto grid max-w-7xl divide-y divide-edge px-4 pb-12 pt-2 sm:px-8 md:grid-cols-3 md:divide-x md:divide-y-0">
     {techStack.map((category) => (
       <div class="py-8 md:py-2 md:px-8 md:first:pl-0 md:last:pr-0">
-        <h3 class="font-mono text-xs uppercase tracking-widest text-dim">{category.title}</h3>
+        <h4 class="font-mono text-xs uppercase tracking-widest text-dim">{category.title}</h4>
         <ul class="mt-5 space-y-2.5">
           {category.items.map((item) => (
             <li class="flex items-baseline gap-3 text-sm text-ink/85">
@@ -30,3 +153,63 @@ import { techStack } from '../data/projects';
     ))}
   </div>
 </section>
+
+<style>
+  /* Glowing time axis: accent gradient with a soft halo. */
+  .tl-line {
+    background: linear-gradient(
+      90deg,
+      rgba(95, 180, 201, 0.1),
+      rgba(95, 180, 201, 0.65) 20%,
+      rgba(95, 180, 201, 0.65) 85%,
+      rgba(95, 180, 201, 0.15)
+    );
+    box-shadow: 0 0 18px rgba(95, 180, 201, 0.3);
+  }
+
+  .tl-dot {
+    box-shadow: 0 0 10px rgba(95, 180, 201, 0.45);
+  }
+
+  .tl-diamond {
+    box-shadow: 0 0 8px rgba(95, 180, 201, 0.45);
+  }
+
+  /* Active state (marker highlight + card reveal) is handled by Tailwind
+     group-data-[active=true] variants; the proximity script below sets
+     data-active so only the nearest marker is ever active. */
+</style>
+
+<script>
+  // Snap the timeline card to the nearest marker: with 90px hover circles the
+  // zones overlap, so CSS :hover would stick to whichever marker is on top.
+  // Instead, track the pointer over the whole strip and activate exactly one
+  // marker: the horizontally closest one.
+  const wrap = document.getElementById('tl-wrap')!;
+  const marks = Array.from(wrap.querySelectorAll<HTMLElement>('.tl-mark'));
+  const SNAP_RADIUS = 45; // px, half of the 90px circle
+
+  function setActive(mark: HTMLElement | null) {
+    marks.forEach((m) => (m.dataset.active = String(m === mark)));
+  }
+
+  wrap.addEventListener('mousemove', (e) => {
+    // While the pointer is inside the open card (reading / clicking a link),
+    // keep it open instead of re-snapping.
+    const card = (e.target as HTMLElement).closest('.tl-card');
+    if (card && (card.closest('.tl-mark') as HTMLElement | null)?.dataset.active === 'true') return;
+
+    let best: HTMLElement | null = null;
+    let bestDist = SNAP_RADIUS;
+    for (const m of marks) {
+      const d = Math.abs(e.clientX - m.getBoundingClientRect().left);
+      if (d < bestDist) {
+        bestDist = d;
+        best = m;
+      }
+    }
+    setActive(best);
+  });
+
+  wrap.addEventListener('mouseleave', () => setActive(null));
+</script>

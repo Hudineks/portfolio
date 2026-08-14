@@ -1,7 +1,7 @@
 ---
 /**
  * Sticky top bar: name, section anchors, and the printable CV/portfolio PDF.
- * Kept to one hairline-ruled strip — the title block below carries identity.
+ * Kept to one hairline-ruled strip; the title block below carries identity.
  */
 import { siteInfo, navLinks } from '../data/projects';
 ---
@@ -21,11 +21,11 @@ import { siteInfo, navLinks } from '../data/projects';
     </ul>
 
     <a
-      href={siteInfo.cvPdf}
+      href={siteInfo.cvFile}
       download
       class="border border-edge px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-ink transition-colors hover:border-accent hover:text-accent"
     >
-      CV / PDF ↓
+      CV ↓
     </a>
   </nav>
 </header>

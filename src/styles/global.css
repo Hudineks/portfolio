@@ -1,4 +1,4 @@
-/* IBM Plex — datasheet identity: Condensed display, Sans body, Mono utility */
+/* IBM Plex, datasheet identity: Condensed display, Sans body, Mono utility */
 @import '@fontsource/ibm-plex-sans-condensed/600.css';
 @import '@fontsource/ibm-plex-sans-condensed/700.css';
 @import '@fontsource/ibm-plex-sans/400.css';
@@ -11,11 +11,11 @@
 /*
  * Techno-minimal instrument-sheet theme.
  * Cold graphite ground, hairline edges, one restrained instrument-cyan accent.
- * The accent is for micro-details only (active states, ticks, links) —
+ * The accent is for micro-details only (active states, ticks, links),
  * never for large surfaces.
  */
 @theme {
-  --color-surface: #101418;   /* page ground — graphite, blue bias */
+  --color-surface: #101418;   /* page ground, graphite, blue bias */
   --color-panel: #161b21;     /* raised panel */
   --color-edge: #262d35;      /* hairline rules */
   --color-ink: #d7dde3;       /* primary text */

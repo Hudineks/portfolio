@@ -32,3 +32,12 @@ src/data/Project_Portfolio2601.pdf
 
 # jetbrains setting folder
 .idea/
+
+# personal job-search notes (not part of the site)
+JOB_TARGETS.md
+
+# personal CV working files (the served copy lives in public/)
+/CV_Hudineks_2260731.pdf
+/CV_Simon_Hudinek_2026.tex
+src/data/CV_251226.pdf
+src/data/Internship Report - Škoda_sign.pdf

@@ -26,6 +26,14 @@ const {
     <meta name="generator" content={Astro.generator} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{title}</title>
+    {import.meta.env.PROD && (
+      <script
+        is:inline
+        type="module"
+        src="https://static.cloudflareinsights.com/beacon.min.js"
+        data-cf-beacon='{"token": "d2ee1d45b5504d7c8390fd73e79f8182"}'
+      ></script>
+    )}
   </head>
   <body class="bg-surface font-sans text-ink antialiased selection:bg-accent selection:text-surface">
     <slot />

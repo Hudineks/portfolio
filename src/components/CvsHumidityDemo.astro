@@ -145,9 +145,7 @@
     grid-template-columns: 260px 200px 1fr;
     gap: 14px;
   }
-  @container (max-width: 900px) {
-    .app-grid { grid-template-columns: 1fr; }
-  }
+  .cvs-main { transform-origin: 0 0; }
 
   .panel {
     background-color: var(--panel-bg);
@@ -303,7 +301,7 @@
 
   // ── Psychrometric model ─────────────────────────────────────────────
   // All quantities on a molar (= volumetric, ideal gas) basis at ambient
-  // pressure. No backend — everything recomputes instantly on input.
+  // pressure. No backend; everything recomputes instantly on input.
 
   const P_TOTAL = 101325; // Pa, ambient pressure (sea-level standard)
   const T_SCALE_MAX = 50; // °C, shared scale of the two vertical bars
@@ -508,4 +506,26 @@
   el("cvs-btn-reset").addEventListener("click", resetDefaults);
 
   update();
+
+  // Scale-to-fit: below the app's 900px design width the whole operator
+  // screen shrinks as one piece (like the real app window), instead of the
+  // three panels stacking vertically on narrow screens.
+  const DESIGN_W = 900;
+  const rootEl = document.getElementById("demo-cvs");
+  const mainEl = rootEl.querySelector(".cvs-main");
+  function fitToWidth() {
+    const w = rootEl.clientWidth;
+    if (w >= DESIGN_W) {
+      mainEl.style.width = "";
+      mainEl.style.transform = "";
+      rootEl.style.height = "";
+    } else {
+      const s = w / DESIGN_W;
+      mainEl.style.width = DESIGN_W + "px";
+      mainEl.style.transform = `scale(${s})`;
+      rootEl.style.height = mainEl.offsetHeight * s + "px";
+    }
+    update();
+  }
+  new ResizeObserver(fitToWidth).observe(rootEl);
 </script>

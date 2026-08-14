@@ -8,8 +8,9 @@
  * adaptations were made for embedding:
  *   - :root/body selectors -> .vodarna-root wrapper
  *   - topbar header and statusbar footer removed (panel sits inside the record)
- *   - viewport media query -> container query so the app-grid stacks by
- *     available width, not window width
+ *   - viewport media query removed: below the 900px design width the whole
+ *     screen scales down as one piece (like the real app window) instead of
+ *     the panels stacking; see fitToWidth() in the script
  *   - cycle list hardcoded and JSON fetched from /demo/water-mpc/ (no Flask API)
  */
 ---
@@ -111,9 +112,7 @@
     grid-template-columns: 260px 200px 1fr;
     gap: 14px;
   }
-  @container (max-width: 900px) {
-    .app-grid { grid-template-columns: 1fr; }
-  }
+  .vd-main { transform-origin: 0 0; }
 
   .panel {
     background-color: var(--panel-bg);
@@ -231,7 +230,7 @@
   const COLORS = { h2: "#cc2b2b", sp: "#d99a1c", u: "#2f9e44" };
   const WINDOW_SEC = 4 * 60; // trend x-axis: fixed 0-4min, then scrolls to show the last 4 minutes
 
-  // Static build: no Flask API — the precomputed JSONs live under /demo/water-mpc/.
+  // Static build: no Flask API; the precomputed JSONs live under /demo/water-mpc/.
   const AVAILABLE_CYCLES = ["Step_Cycle", "Ramp_Cycle"];
   const DATA_BASE = "/demo/water-mpc";
 
@@ -448,4 +447,26 @@
   }
 
   init();
+
+  // Scale-to-fit: below the app's 900px design width the whole operator
+  // screen shrinks as one piece (like the real app window), instead of the
+  // three panels stacking vertically on narrow screens.
+  const DESIGN_W = 900;
+  const rootEl = document.getElementById("demo");
+  const mainEl = rootEl.querySelector(".vd-main");
+  function fitToWidth() {
+    const w = rootEl.clientWidth;
+    if (w >= DESIGN_W) {
+      mainEl.style.width = "";
+      mainEl.style.transform = "";
+      rootEl.style.height = "";
+    } else {
+      const s = w / DESIGN_W;
+      mainEl.style.width = DESIGN_W + "px";
+      mainEl.style.transform = `scale(${s})`;
+      rootEl.style.height = mainEl.offsetHeight * s + "px";
+    }
+    drawTrend();
+  }
+  new ResizeObserver(fitToWidth).observe(rootEl);
 </script>
